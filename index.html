@@ -162,14 +162,14 @@ async function api(body){
   let res;
   try{ res=await fetch(SERVER_URL,{method:'POST',headers:{'content-type':'text/plain;charset=utf-8'},body:JSON.stringify({...body,pin})}); }
   catch{ throw new ApiError('ag'); }
-  let j; try{ j=await res.json(); }catch{ throw new ApiError('sunucu'); }
+  let j; try{ j=await res.json(); }catch{ throw new ApiError('sunucu','Sunucu JSON yerine sayfa döndürdü (HTTP '+res.status+'). Dağıtım erişimi "Herkes" mi?'); }
   if(!j.ok){ if(j.error==='sifre') lockOut('Şifre geçersiz ya da değişti. Tekrar gir.'); throw new ApiError(j.error,j.mesaj); }
   return j;
 }
 const ERR={ag:'İnternet bağlantısı yok ya da sunucuya ulaşılamadı.',sifre:'Şifre geçersiz.',kota:'Okuma sınırına ulaşıldı; bir dakika bekleyip tekrar dene.',
   okunamadi:'Form okunamadı. Daha net, düz bir fotoğrafla tekrar dene.',foto:'Fotoğraf çok büyük ya da bozuk.',
   kurulum:'Sunucu ayarları eksik (GEMINI_KEY / EKIP_SIFRESI).',gemini:'Okuma servisi hata verdi.',sunucu:'Sunucu hatası.',istek:'Geçersiz istek.'};
-const errMsg=e=>ERR[e&&e.code]||'Beklenmeyen bir hata oldu.';
+const errMsg=e=>{const base=ERR[e&&e.code]||'Beklenmeyen bir hata oldu.';const d=e&&e.message&&e.message!==e.code?String(e.message).slice(0,200):'';return d?base+' Ayrıntı: '+d:base;};
 
 // Giriş
 function showApp(on){
@@ -192,12 +192,15 @@ $('gateForm').addEventListener('submit',async e=>{
 $('logout').addEventListener('click',()=>lockOut(''));
 
 // Fotoğraf
+// Sadece formun sol yarısını (Kişisel Bilgiler kutusu) küçültüp gönder: daha hızlı okunur
 async function shrink(file){
   const bmp=await createImageBitmap(file);
-  const max=1500, s=Math.min(1,max/Math.max(bmp.width,bmp.height));
-  const c=document.createElement('canvas'); c.width=Math.round(bmp.width*s); c.height=Math.round(bmp.height*s);
-  c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
-  return await new Promise(r=>c.toBlob(r,'image/jpeg',0.82));
+  const portrait=bmp.height>=bmp.width;
+  const sw=portrait?Math.round(bmp.width*0.6):bmp.width, sh=bmp.height; // dikey çekimde sol %60
+  const max=1100, s=Math.min(1,max/Math.max(sw,sh));
+  const c=document.createElement('canvas'); c.width=Math.round(sw*s); c.height=Math.round(sh*s);
+  c.getContext('2d').drawImage(bmp,0,0,sw,sh,0,0,c.width,c.height);
+  return await new Promise(r=>c.toBlob(r,'image/jpeg',0.8));
 }
 const toB64=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(b);});
 async function onPick(e){
@@ -213,7 +216,8 @@ $('gal').addEventListener('change',onPick);
 async function readForm(){
   if(!imageBlob) return;
   const btn=$('read'); btn.disabled=true;
-  setStatus($('readStatus'),'Okunuyor… (5–20 sn)');
+  const t0=Date.now(); setStatus($('readStatus'),'Okunuyor… 0 sn');
+  const tick=setInterval(()=>setStatus($('readStatus'),'Okunuyor… '+Math.round((Date.now()-t0)/1000)+' sn'),1000);
   try{
     const {data:r}=await api({action:'read',image:await toB64(imageBlob)});
     F.ad.value=r.ad_soyad||''; F.uni.value=r.universite||''; F.bolum.value=r.bolum||'';
@@ -221,9 +225,9 @@ async function readForm(){
     const unsure=new Set(Array.isArray(r.emin_degil)?r.emin_degil:[]);
     const map={ad_soyad:F.ad,universite:F.uni,bolum:F.bolum,sinif:F.sinif,telefon:F.tel};
     for(const k in map) map[k].classList.toggle('unsure',unsure.has(k)||!map[k].value);
-    setStatus($('readStatus'),'Okundu. Bilgileri kontrol edip Kaydet’e bas.','ok');
+    setStatus($('readStatus'),`Okundu (${((Date.now()-t0)/1000).toFixed(1)} sn). Bilgileri kontrol edip Kaydet’e bas.`,'ok');
   }catch(e){ if(e.code!=='sifre') setStatus($('readStatus'),errMsg(e),'err'); }
-  finally{ btn.disabled=!imageBlob; }
+  finally{ clearInterval(tick); btn.disabled=!imageBlob; }
 }
 $('read').addEventListener('click',readForm);
 
