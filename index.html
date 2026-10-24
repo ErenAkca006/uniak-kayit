@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>ÜNİAK Form Okuyucu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* Layout: one narrow column — scan card, editable result, then the running list of records */
+:root{
+  --bg:#f3f5fb; --surface:#ffffff; --ink:#1b2350; --muted:#5d6488; --line:#dde1ef;
+  --navy:#2b3a8f; --orange:#ef6a1f; --orange-ink:#ffffff; --ok:#1f7a4d; --err:#b3261e; --soft:#e9ecf8;
+  --display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body:"Figtree", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#10132a; --surface:#181c3a; --ink:#e8eaf8; --muted:#9aa0c4; --line:#2a2f57;
+  --navy:#8e9dff; --orange:#ff8a45; --orange-ink:#1a0d04; --ok:#5fd09a; --err:#ff8a80; --soft:#20254a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#10132a; --surface:#181c3a; --ink:#e8eaf8; --muted:#9aa0c4; --line:#2a2f57;
+  --navy:#8e9dff; --orange:#ff8a45; --orange-ink:#1a0d04; --ok:#5fd09a; --err:#ff8a80; --soft:#20254a; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
+.wrap{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+header h1{font-family:var(--display);font-weight:800;font-size:clamp(26px,6vw,34px);line-height:1.1;margin:0;color:var(--navy);text-wrap:balance}
+header h1 span{color:var(--orange)}
+header p{margin:6px 0 0;color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px}
+.card h2{font-family:var(--display);font-weight:600;font-size:18px;margin:0;display:flex;align-items:center;gap:10px}
+.step{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--navy);color:var(--surface);font-size:13px;font-family:var(--body);font-weight:600}
+.btns{display:flex;flex-wrap:wrap;gap:10px}
+button,.filebtn{font:600 15px var(--body);border-radius:10px;padding:12px 16px;border:1px solid var(--line);background:var(--soft);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px}
+button.primary,.filebtn.primary{background:var(--orange);border-color:var(--orange);color:var(--orange-ink)}
+button.navy{background:var(--navy);border-color:var(--navy);color:var(--surface)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button:focus-visible,.filebtn:focus-within,input:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+.filebtn input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.grow{flex:1 1 160px}
+#preview{max-width:100%;max-height:340px;object-fit:contain;border-radius:10px;border:1px solid var(--line);align-self:center}
+.status{font-size:14px;color:var(--muted);min-height:1.5em}
+.status.err{color:var(--err)} .status.ok{color:var(--ok)}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:520px){.fields{grid-template-columns:1fr}}
+.fields .full{grid-column:1/-1}
+label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);min-width:0}
+input[type=text],input[type=tel]{font:500 16px var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:10px 12px;width:100%;text-transform:none;letter-spacing:0}
+input.unsure{border-color:var(--orange)}
+.hint{font-size:13px;color:var(--muted);margin:0}
+.listhead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.count{font-variant-numeric:tabular-nums;color:var(--muted);font-size:14px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:560px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);background:var(--soft)}
+td.num{font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:0}
+.del{background:none;border:0;color:var(--err);min-height:auto;padding:4px 6px;font-size:13px}
+.empty{padding:22px;text-align:center;color:var(--muted)}
+.tag{font-size:12px;background:var(--soft);color:var(--muted);border-radius:99px;padding:3px 9px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+.apikey{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.apikey label{flex:1 1 220px}
+details summary{cursor:pointer;font-weight:600;color:var(--navy)}
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header>
+    <h1>Form <span>Okuyucu</span></h1>
+    <p>“Kampüse Hoş Geldin” formunu fotoğrafla, bilgileri kontrol et, kaydet. Liste Excel olarak indirilir.</p>
+  </header>
+
+  <section class="card" id="gate">
+    <h2>Ekip girişi</h2>
+    <p class="hint">Bu araç yalnızca ÜNİAK kayıt ekibi içindir. Şifreyi ekip sorumlusundan al; bu cihazda bir kez girmen yeterli.</p>
+    <form id="gateForm" class="btns" autocomplete="off">
+      <label class="grow" for="pin">Ekip şifresi<input id="pin" type="password" autocomplete="current-password"></label>
+      <button type="submit" class="primary" id="gateBtn" style="align-self:flex-end">Giriş</button>
+    </form>
+    <div id="gStatus" class="status" aria-live="polite"></div>
+  </section>
+
+  <section class="card needpin" hidden aria-labelledby="h1">
+    <h2 id="h1"><span class="step">1</span>Formu çek</h2>
+    <div class="btns">
+      <label class="filebtn primary grow" for="cam" style="text-transform:none;letter-spacing:0;font-size:15px;color:var(--orange-ink)">
+        📷 Kamerayla çek
+        <input id="cam" type="file" accept="image/*" capture="environment">
+      </label>
+      <label class="filebtn grow" for="gal" style="text-transform:none;letter-spacing:0;font-size:15px;color:var(--ink)">
+        Galeriden seç
+        <input id="gal" type="file" accept="image/*">
+      </label>
+    </div>
+    <img id="preview" alt="Çekilen form" hidden>
+    <button id="read" class="navy" disabled>Bilgileri oku</button>
+    <div id="readStatus" class="status" aria-live="polite">Formun sol üstteki “Kişisel Bilgiler” kutusu net görünsün.</div>
+  </section>
+
+  <section class="card needpin" hidden aria-labelledby="h2">
+    <h2 id="h2"><span class="step">2</span>Kontrol et ve kaydet</h2>
+    <form id="form" class="fields" autocomplete="off">
+      <label class="full" for="f_ad">Ad Soyad<input id="f_ad" type="text"></label>
+      <label for="f_uni">Üniversite<input id="f_uni" type="text"></label>
+      <label for="f_bolum">Bölüm<input id="f_bolum" type="text"></label>
+      <label for="f_sinif">Sınıf<input id="f_sinif" type="text" inputmode="numeric"></label>
+      <label for="f_tel">Telefon<input id="f_tel" type="tel" inputmode="tel"></label>
+      <div class="full btns">
+        <button type="submit" class="primary grow" id="save">Kaydet</button>
+        <button type="button" id="clear">Temizle</button>
+      </div>
+    </form>
+    <p class="hint">El yazısı yanlış okunabilir; turuncu kenarlı alanlara özellikle bak.</p>
+    <div id="saveStatus" class="status" aria-live="polite"></div>
+  </section>
+
+  <section class="card needpin" hidden aria-labelledby="h3">
+    <div class="listhead">
+      <h2 id="h3"><span class="step">3</span>Ortak kayıtlar <span class="tag" id="mode">ortak liste</span></h2>
+      <span class="count" id="count">0 kişi</span>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>#</th><th>Ad Soyad</th><th>Üniversite</th><th>Bölüm</th><th>Sınıf</th><th>Telefon</th><th></th></tr></thead>
+        <tbody id="rows"><tr><td colspan="7" class="empty">Henüz kayıt yok. İlk formu çekip kaydet.</td></tr></tbody>
+      </table>
+    </div>
+    <div class="btns"><button id="xlsx" class="primary grow" disabled>Excel olarak indir (.xlsx)</button><button id="refresh" type="button">Yenile</button></div>
+    <div id="xStatus" class="status" aria-live="polite"></div>
+  </section>
+  <p class="hint needpin" hidden style="text-align:center"><button type="button" id="logout" class="del" style="color:var(--muted)">Bu cihazda çıkış yap</button></p>
+</div>
+
+<script>
+// Sunucu adresi (Google Apps Script). Anahtar ve şifre burada DEĞİL, sunucuda saklanır.
+const SERVER_URL='https://script.google.com/macros/s/AKfycbwAv6zAdM68WGLKwuTvezvtunyPoCc0WDgAS2PQ7XnO9PQDfD7mYJyWcxBZSeqR4kvg/exec';
+
+const $=id=>document.getElementById(id);
+const F={ad:$('f_ad'),uni:$('f_uni'),bolum:$('f_bolum'),sinif:$('f_sinif'),tel:$('f_tel')};
+const LS={get(k,d){try{return localStorage.getItem(k)??d}catch{return d}},set(k,v){try{localStorage.setItem(k,v)}catch{}},del(k){try{localStorage.removeItem(k)}catch{}}};
+let imageBlob=null, records=[], pin=LS.get('uniak_pin',''), timer=null;
+
+function setStatus(el,msg,kind){el.textContent=msg;el.className='status'+(kind?' '+kind:'');}
+function fmtTel(s){
+  let d=String(s||'').replace(/\D/g,'');
+  if(d.startsWith('90')&&d.length===12) d=d.slice(2);
+  if(d.startsWith('0')&&d.length===11) d=d.slice(1);
+  if(d.length===10) return d.replace(/(\d{3})(\d{3})(\d{2})(\d{2})/,'0$1 $2 $3 $4');
+  return String(s||'').trim();
+}
+
+class ApiError extends Error{constructor(code,msg){super(msg||code);this.code=code;}}
+async function api(body){
+  let res;
+  try{ res=await fetch(SERVER_URL,{method:'POST',headers:{'content-type':'text/plain;charset=utf-8'},body:JSON.stringify({...body,pin})}); }
+  catch{ throw new ApiError('ag'); }
+  let j; try{ j=await res.json(); }catch{ throw new ApiError('sunucu'); }
+  if(!j.ok){ if(j.error==='sifre') lockOut('Şifre geçersiz ya da değişti. Tekrar gir.'); throw new ApiError(j.error,j.mesaj); }
+  return j;
+}
+const ERR={ag:'İnternet bağlantısı yok ya da sunucuya ulaşılamadı.',sifre:'Şifre geçersiz.',kota:'Okuma sınırına ulaşıldı; bir dakika bekleyip tekrar dene.',
+  okunamadi:'Form okunamadı. Daha net, düz bir fotoğrafla tekrar dene.',foto:'Fotoğraf çok büyük ya da bozuk.',
+  kurulum:'Sunucu ayarları eksik (GEMINI_KEY / EKIP_SIFRESI).',gemini:'Okuma servisi hata verdi.',sunucu:'Sunucu hatası.',istek:'Geçersiz istek.'};
+const errMsg=e=>ERR[e&&e.code]||'Beklenmeyen bir hata oldu.';
+
+// Giriş
+function showApp(on){
+  $('gate').hidden=on;
+  document.querySelectorAll('.needpin').forEach(el=>el.hidden=!on);
+  clearInterval(timer);
+  if(on){ loadRows(false); timer=setInterval(()=>{if(document.visibilityState==='visible') loadRows(true);},20000); }
+}
+function lockOut(msg){ pin=''; LS.del('uniak_pin'); records=[]; render(); showApp(false); if(msg) setStatus($('gStatus'),msg,'err'); }
+$('gateForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const v=$('pin').value.trim(); if(!v) return;
+  $('gateBtn').disabled=true; setStatus($('gStatus'),'Kontrol ediliyor…');
+  pin=v;
+  try{ const j=await api({action:'list'}); LS.set('uniak_pin',v); $('pin').value=''; setStatus($('gStatus'),'');
+    records=j.rows.sort((x,y)=>x.zaman-y.zaman); showApp(true); render(); }
+  catch(err){ if(err.code!=='sifre') setStatus($('gStatus'),errMsg(err),'err'); pin=''; }
+  finally{ $('gateBtn').disabled=false; }
+});
+$('logout').addEventListener('click',()=>lockOut(''));
+
+// Fotoğraf
+async function shrink(file){
+  const bmp=await createImageBitmap(file);
+  const max=1500, s=Math.min(1,max/Math.max(bmp.width,bmp.height));
+  const c=document.createElement('canvas'); c.width=Math.round(bmp.width*s); c.height=Math.round(bmp.height*s);
+  c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+  return await new Promise(r=>c.toBlob(r,'image/jpeg',0.82));
+}
+const toB64=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(b);});
+async function onPick(e){
+  const file=e.target.files&&e.target.files[0]; e.target.value='';
+  if(!file) return;
+  try{imageBlob=await shrink(file);}catch{imageBlob=file;}
+  const p=$('preview'); p.src=URL.createObjectURL(imageBlob); p.hidden=false;
+  $('read').disabled=false; readForm();
+}
+$('cam').addEventListener('change',onPick);
+$('gal').addEventListener('change',onPick);
+
+async function readForm(){
+  if(!imageBlob) return;
+  const btn=$('read'); btn.disabled=true;
+  setStatus($('readStatus'),'Okunuyor… (5–20 sn)');
+  try{
+    const {data:r}=await api({action:'read',image:await toB64(imageBlob)});
+    F.ad.value=r.ad_soyad||''; F.uni.value=r.universite||''; F.bolum.value=r.bolum||'';
+    F.sinif.value=String(r.sinif||'').replace(/\D/g,''); F.tel.value=fmtTel(r.telefon);
+    const unsure=new Set(Array.isArray(r.emin_degil)?r.emin_degil:[]);
+    const map={ad_soyad:F.ad,universite:F.uni,bolum:F.bolum,sinif:F.sinif,telefon:F.tel};
+    for(const k in map) map[k].classList.toggle('unsure',unsure.has(k)||!map[k].value);
+    setStatus($('readStatus'),'Okundu. Bilgileri kontrol edip Kaydet’e bas.','ok');
+  }catch(e){ if(e.code!=='sifre') setStatus($('readStatus'),errMsg(e),'err'); }
+  finally{ btn.disabled=!imageBlob; }
+}
+$('read').addEventListener('click',readForm);
+
+function clearForm(){for(const k in F){F[k].value='';F[k].classList.remove('unsure');}}
+$('clear').addEventListener('click',()=>{clearForm();setStatus($('saveStatus'),'');});
+for(const k in F) F[k].addEventListener('input',()=>F[k].classList.remove('unsure'));
+
+// Liste
+let loading=false;
+async function loadRows(quiet){
+  if(loading||!pin) return; loading=true;
+  if(!quiet) setStatus($('xStatus'),'Liste yükleniyor…');
+  try{
+    const j=await api({action:'list'});
+    records=j.rows.sort((x,y)=>x.zaman-y.zaman); render();
+    setStatus($('xStatus'),'Güncellendi '+new Date().toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}));
+  }catch(e){ if(e.code!=='sifre') setStatus($('xStatus'),errMsg(e),'err'); }
+  finally{ loading=false; }
+}
+$('refresh').addEventListener('click',()=>loadRows(false));
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&pin) loadRows(true); });
+
+$('form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const rec={id:'r'+Date.now()+Math.random().toString(36).slice(2,6),ad_soyad:F.ad.value.trim(),universite:F.uni.value.trim(),bolum:F.bolum.value.trim(),
+    sinif:F.sinif.value.trim(),telefon:fmtTel(F.tel.value),zaman:Date.now()};
+  if(!rec.ad_soyad){setStatus($('saveStatus'),'Ad Soyad boş olamaz.','err');F.ad.focus();return;}
+  const dup=rec.telefon&&records.find(r=>r.telefon===rec.telefon);
+  $('save').disabled=true; setStatus($('saveStatus'),'Kaydediliyor…');
+  try{
+    await api({action:'add',record:rec});
+    records.push(rec); render();
+    setStatus($('saveStatus'),dup?`Kaydedildi (bu telefon zaten listede vardı: ${dup.ad_soyad}).`:`${rec.ad_soyad} kaydedildi.`,'ok');
+    clearForm(); imageBlob=null; $('preview').hidden=true; $('read').disabled=true;
+    setStatus($('readStatus'),'Sıradaki formu çekebilirsin.');
+    loadRows(true);
+  }catch(e){ if(e.code!=='sifre') setStatus($('saveStatus'),'Kaydedilemedi: '+errMsg(e),'err'); }
+  finally{ $('save').disabled=false; }
+});
+
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function render(){
+  const tb=$('rows');
+  $('count').textContent=records.length+' kişi';
+  $('xlsx').disabled=!records.length;
+  if(!records.length){tb.innerHTML='<tr><td colspan="7" class="empty">Henüz kayıt yok. İlk formu çekip kaydet.</td></tr>';return;}
+  tb.innerHTML=records.map((r,i)=>`<tr><td class="num">${i+1}</td><td>${esc(r.ad_soyad)}</td><td>${esc(r.universite)}</td><td>${esc(r.bolum)}</td><td class="num">${esc(r.sinif)}</td><td class="num">${esc(r.telefon)}</td><td><button class="del" data-id="${esc(r.id)}">Sil</button></td></tr>`).join('');
+}
+$('rows').addEventListener('click',async e=>{
+  const b=e.target.closest('.del'); if(!b) return;
+  if(b.dataset.arm!=='1'){b.dataset.arm='1';b.textContent='Emin misin?';setTimeout(()=>{if(b.isConnected&&!b.disabled){b.dataset.arm='';b.textContent='Sil';}},3000);return;}
+  b.disabled=true; b.textContent='Siliniyor…';
+  try{ await api({action:'delete',id:b.dataset.id}); records=records.filter(r=>r.id!==b.dataset.id); render(); }
+  catch(err){ if(err.code!=='sifre') setStatus($('xStatus'),'Silinemedi: '+errMsg(err),'err'); b.disabled=false; b.textContent='Sil'; b.dataset.arm=''; }
+});
+
+$('xlsx').addEventListener('click',()=>{
+  const rows=records.map((r,i)=>({'No':i+1,'Ad Soyad':r.ad_soyad,'Üniversite':r.universite,'Bölüm':r.bolum,'Sınıf':r.sinif,'Telefon':r.telefon,
+    'Kayıt Zamanı':r.zaman?new Date(r.zaman).toLocaleString('tr-TR'):''}));
+  const ws=XLSX.utils.json_to_sheet(rows);
+  ws['!cols']=[{wch:5},{wch:26},{wch:24},{wch:26},{wch:7},{wch:16},{wch:20}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Kayıtlar');
+  const d=new Date(), name=`uniak-kayitlar-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}.xlsx`;
+  XLSX.writeFile(wb,name);
+  setStatus($('xStatus'),name+' indirildi.','ok');
+});
+
+render();
+showApp(!!pin);
+</script>
+</body>
+</html>
